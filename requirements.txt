@@ -1,0 +1,4 @@
+﻿@"
+selenium==4.15.0
+python-telegram-bot==20.6
+"@ | Out-File -FilePath requirements.txt -Encoding UTF8
