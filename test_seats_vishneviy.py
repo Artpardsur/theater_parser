@@ -1,5 +1,5 @@
 """
-Тест для проверки доступных мест в Вишневом саду
+Тест: найти любые свободные места в Вишневом саду
 """
 
 import sys
@@ -12,184 +12,94 @@ from selenium.webdriver.common.by import By
 from src.parser.edge_bot import EdgeTheaterBot
 
 
-def find_any_free_seats(driver, max_seats_to_find=10):
-    """
-    Найти любые свободные места в зале
-    
-    Returns:
-        список свободных мест [{'row': row, 'seat': seat}, ...]
-    """
-    print("\n🔍 Ищу свободные места...")
-    
-    # Пробуем разные селекторы для мест
-    seat_selectors = [
-        "[data-row][data-place]",
-        "[data-row][data-seat]",
-        "[data-row][data-col]",
-        ".seat[data-row]",
-        ".place[data-row]",
-        "[data-row]"
-    ]
-    
-    free_seats = []
-    seen = set()
-    
-    for selector in seat_selectors:
-        try:
-            elements = driver.find_elements(By.CSS_SELECTOR, selector)
-            print(f"  Пробую селектор '{selector}': найдено {len(elements)} элементов")
-            
-            for el in elements:
-                try:
-                    # Получаем ряд и место
-                    row = el.get_attribute("data-row")
-                    if not row:
-                        row = el.get_attribute("row")
-                    
-                    place = el.get_attribute("data-place")
-                    if not place:
-                        place = el.get_attribute("data-col")
-                    if not place:
-                        place = el.get_attribute("data-seat")
-                    if not place:
-                        place = el.get_attribute("seat")
-                    
-                    if row and place:
-                        key = f"{row}_{place}"
-                        if key in seen:
-                            continue
-                        seen.add(key)
-                        
-                        # Проверяем, свободно ли место
-                        classes = el.get_attribute("class") or ""
-                        is_free = "busy" not in classes and "taken" not in classes and "reserved" not in classes
-                        
-                        if is_free:
-                            free_seats.append({
-                                'row': int(row),
-                                'seat': int(place),
-                                'element': el
-                            })
-                            
-                            if len(free_seats) >= max_seats_to_find:
-                                return free_seats
-                except:
-                    continue
-                    
-        except Exception as e:
-            print(f"  Ошибка с селектором {selector}: {e}")
-            continue
-    
-    return free_seats
-
-
-def test_vishneviy_sad():
-    """Тест для Вишневого сада"""
-    print("🎭 ТЕСТ: ВИШНЕВЫЙ САД - ПОИСК СВОБОДНЫХ МЕСТ")
+def test_any_free_seats():
+    """Проверить, есть ли вообще свободные места"""
+    print("🎭 ПРОВЕРКА: ПОИСК ЛЮБЫХ СВОБОДНЫХ МЕСТ")
     print("=" * 60)
     
     bot = EdgeTheaterBot(headless=False)
-    driver = bot.driver
     
     try:
-        # ID Вишневого сада
-        session_id = 838
+        # Открываем Вишневый сад
+        print("\n📂 Открываю Вишневый сад (ID: 838)...")
+        bot.open_play_page(838)
         
-        print(f"\n📂 Открываю спектакль: Вишневый сад (ID: {session_id})")
-        bot.open_play_page(session_id)
-        
-        print("🔄 Переключаюсь в схему зала...")
-        if not bot.switch_to_hall_iframe():
-            print("❌ Не удалось загрузить схему зала")
-            return
-        
+        print("🔄 Переключаюсь в iframe...")
+        bot.switch_to_hall_iframe()
         time.sleep(2)
         
-        # Ищем свободные места
-        free_seats = find_any_free_seats(driver, max_seats_to_find=20)
+        print("\n🔍 Ищу все элементы, похожие на места...")
         
-        print("\n" + "=" * 60)
-        print(f"📊 РЕЗУЛЬТАТЫ ПОИСКА:")
-        print("=" * 60)
+        # Пробуем разные селекторы
+        selectors = [
+            "[data-row]",
+            "[data-place]",
+            ".seat",
+            ".place",
+            "rect",
+            "div[class*='seat']",
+            "td"
+        ]
+        
+        all_elements = []
+        for selector in selectors:
+            elements = bot.driver.find_elements(By.CSS_SELECTOR, selector)
+            if elements:
+                print(f"  Селектор '{selector}': найдено {len(elements)} элементов")
+                all_elements.extend(elements)
+        
+        print(f"\n📊 Всего найдено элементов: {len(all_elements)}")
+        
+        # Анализируем найденные элементы
+        free_seats = []
+        
+        for el in all_elements:
+            try:
+                # Получаем атрибуты
+                html = el.get_attribute("outerHTML")
+                classes = el.get_attribute("class") or ""
+                
+                # Проверяем, есть ли признаки места
+                has_row = el.get_attribute("data-row") or el.get_attribute("row")
+                has_place = el.get_attribute("data-place") or el.get_attribute("data-col") or el.get_attribute("data-seat")
+                
+                if has_row or has_place:
+                    # Проверяем, свободно ли место
+                    is_free = "busy" not in classes and "taken" not in classes and "reserved" not in classes
+                    
+                    if is_free:
+                        free_seats.append({
+                            'html': html[:200],
+                            'classes': classes,
+                            'row': has_row,
+                            'place': has_place
+                        })
+            except:
+                continue
+        
+        print(f"\n✅ Найдено потенциальных свободных мест: {len(free_seats)}")
         
         if free_seats:
-            print(f"\n✅ Найдено свободных мест: {len(free_seats)}")
-            
-            # Группируем по рядам
-            seats_by_row = {}
-            for seat in free_seats:
-                row = seat['row']
-                if row not in seats_by_row:
-                    seats_by_row[row] = []
-                seats_by_row[row].append(seat['seat'])
-            
-            print("\n📋 Свободные места по рядам:")
-            print("-" * 40)
-            
-            for row in sorted(seats_by_row.keys()):
-                seats = sorted(seats_by_row[row])
-                print(f"  Ряд {row}: места {seats}")
-            
-            # Предлагаем выбрать места для теста
-            print("\n" + "=" * 60)
-            print("💡 Для теста выберите любые 2 места из списка выше")
-            print("   Затем мы можем проверить, как бот их выбирает")
-            
-            # Спрашиваем, хочет ли пользователь протестировать выбор мест
-            test_choice = input("\nХотите протестировать выбор мест? (да/нет): ").strip().lower()
-            
-            if test_choice in ['да', 'yes', 'y', 'д']:
-                print("\n📝 Введите места для теста (например: 5,1 или 5,1 и 5,2)")
-                seat_input = input("Места (ряд,место через пробел): ").strip()
-                
-                test_seats = []
-                for part in seat_input.split():
-                    if ',' in part:
-                        r, s = part.split(',')
-                        test_seats.append({'row': int(r), 'seat': int(s)})
-                
-                if test_seats:
-                    print(f"\n🔍 Пробую выбрать места: {test_seats}")
-                    
-                    # Пробуем выбрать места
-                    selected = bot.select_seats(test_seats)
-                    
-                    if selected > 0:
-                        print(f"\n✅ Выбрано {selected} мест")
-                        
-                        # Спрашиваем, бронировать ли
-                        book_choice = input("\nЗабронировать выбранные места? (да/нет): ").strip().lower()
-                        if book_choice in ['да', 'yes', 'y', 'д']:
-                            if bot.book_tickets():
-                                payment_url = bot.get_payment_url()
-                                if payment_url:
-                                    print(f"\n🎉 УСПЕХ! Ссылка на оплату: {payment_url}")
-                                else:
-                                    print("\n❌ Не удалось получить ссылку на оплату")
-                            else:
-                                print("\n❌ Не удалось забронировать")
-                    else:
-                        print("\n❌ Не удалось выбрать места")
-            
+            print("\n📋 Примеры свободных мест:")
+            for i, seat in enumerate(free_seats[:3], 1):
+                print(f"\n  {i}. HTML: {seat['html']}")
+                print(f"     Классы: {seat['classes']}")
+                if seat['row']:
+                    print(f"     Ряд: {seat['row']}")
+                if seat['place']:
+                    print(f"     Место: {seat['place']}")
         else:
             print("\n❌ Свободных мест не найдено!")
-            print("Возможно, все билеты проданы или спектакль уже прошёл")
-            
-            # Показываем пример HTML для отладки
-            print("\n🔍 Для отладки, ищу любые элементы с атрибутами мест...")
-            all_with_data = driver.find_elements(By.CSS_SELECTOR, "[data-row], [data-place]")
-            if all_with_data:
-                print(f"Найдено элементов с data-row/data-place: {len(all_with_data)}")
-                print("Пример первых 3:")
-                for i, el in enumerate(all_with_data[:3]):
+            print("\n🔍 Показываю примеры всех найденных элементов:")
+            for i, el in enumerate(all_elements[:5], 1):
+                try:
                     html = el.get_attribute("outerHTML")[:200]
-                    print(f"  {i+1}. {html}")
-            else:
-                print("Элементы с data-row не найдены")
-                
-                # Пробуем найти любые элементы внутри iframe
-                body = driver.find_element(By.TAG_NAME, "body")
-                print(f"Содержимое body: {body.get_attribute('innerHTML')[:500]}")
+                    print(f"\n  {i}. {html}")
+                except:
+                    pass
+        
+        print("\n" + "=" * 60)
+        print("💡 Совет: посмотрите в браузере, есть ли свободные места визуально?")
         
     except Exception as e:
         print(f"\n❌ Ошибка: {e}")
@@ -199,4 +109,4 @@ def test_vishneviy_sad():
 
 
 if __name__ == "__main__":
-    test_vishneviy_sad()
+    test_any_free_seats()

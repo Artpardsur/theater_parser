@@ -117,76 +117,82 @@ class EdgeTheaterBot:
     
     def select_seats_smart(self, seats_config):
         """
-        Умный выбор мест с учетом прохода в партере
-        
-        seats_config = {
-            'preferred_rows': [5, 6, 7],      # предпочитаемые ряды
-            'seats_per_side': 2                # сколько мест нужно
-        }
+        Выбор мест через поиск по классам (работает внутри iframe)
         """
-        logger.info(f"Умный выбор мест: {seats_config}")
+        logger.info(f"Выбираю места: {seats_config}")
         
-        preferred_rows = seats_config.get('preferred_rows', [5, 6, 7])
         seats_needed = seats_config.get('seats_per_side', 2)
         
-        # Проход в партере (обычно между 8 и 9 местами)
-        PASSAGE_SEAT = 8
+        # Ждём, пока загрузятся места
+        time.sleep(1)
         
-        # Находим все доступные места в предпочитаемых рядах
-        available_seats = []
+        # Ищем все свободные места
+        free_seats = self.driver.find_elements(By.CSS_SELECTOR, ".hallPlace.free")
+        logger.info(f"Найдено свободных мест: {len(free_seats)}")
         
-        for row in preferred_rows:
-            for seat in range(1, 21):
-                selector = self.find_seat_selector(row, seat)
-                if selector:
+        if not free_seats:
+            logger.error("Нет свободных мест!")
+            return []
+        
+        # Собираем информацию о местах
+        seats_info = []
+        for seat in free_seats:
+            try:
+                # Получаем номер места (пробуем разные варианты)
+                seat_number = ""
+                try:
+                    number_span = seat.find_element(By.CSS_SELECTOR, ".place_text_only")
+                    seat_number = number_span.text.strip()
+                except:
+                    pass
+                
+                if not seat_number:
+                    # Пробуем получить текст напрямую из div
+                    seat_number = seat.text.strip()
+                
+                # Получаем координаты
+                style = seat.get_attribute("style")
+                left = 0
+                top = 0
+                if style and "left:" in style:
                     try:
-                        seat_element = self.driver.find_element(By.CSS_SELECTOR, selector)
-                        classes = seat_element.get_attribute("class") or ""
-                        if "busy" not in classes and "taken" not in classes and "reserved" not in classes:
-                            available_seats.append({'row': row, 'seat': seat})
+                        left = int(style.split("left:")[1].split("px")[0])
                     except:
-                        continue
+                        pass
+                if style and "top:" in style:
+                    try:
+                        top = int(style.split("top:")[1].split("px")[0])
+                    except:
+                        pass
+                
+                seats_info.append({
+                    'element': seat,
+                    'number': seat_number,
+                    'left': left,
+                    'top': top
+                })
+                logger.info(f"  Место: №{seat_number}, позиция: ({left}, {top})")
+            except Exception as e:
+                logger.error(f"Ошибка при чтении места: {e}")
         
-        logger.info(f"Найдено доступных мест: {len(available_seats)}")
+        # Сортируем по позиции (слева направо, сверху вниз)
+        seats_info.sort(key=lambda x: (x['top'], x['left']))
         
-        # Группируем по рядам
-        seats_by_row = {}
-        for seat in available_seats:
-            row = seat['row']
-            if row not in seats_by_row:
-                seats_by_row[row] = []
-            seats_by_row[row].append(seat['seat'])
+        # Берём первые N мест
+        selected = seats_info[:seats_needed]
         
-        # Ищем непрерывные блоки мест на одной стороне от прохода
-        for row, seats_list in seats_by_row.items():
-            seats_list.sort()
-            
-            left_seats = [s for s in seats_list if s < PASSAGE_SEAT]
-            right_seats = [s for s in seats_list if s > PASSAGE_SEAT]
-            
-            if len(left_seats) >= seats_needed:
-                for i in range(len(left_seats) - seats_needed + 1):
-                    block = left_seats[i:i+seats_needed]
-                    if all(block[j] + 1 == block[j+1] for j in range(len(block)-1)):
-                        logger.info(f"✅ Найден блок мест: ряд {row}, места {block}")
-                        return [{'row': row, 'seat': s} for s in block]
-            
-            if len(right_seats) >= seats_needed:
-                for i in range(len(right_seats) - seats_needed + 1):
-                    block = right_seats[i:i+seats_needed]
-                    if all(block[j] + 1 == block[j+1] for j in range(len(block)-1)):
-                        logger.info(f"✅ Найден блок мест: ряд {row}, места {block}")
-                        return [{'row': row, 'seat': s} for s in block]
+        # Кликаем по каждому месту
+        for seat in selected:
+            try:
+                self.driver.execute_script("arguments[0].scrollIntoView(true);", seat['element'])
+                time.sleep(0.3)
+                seat['element'].click()
+                logger.info(f"✅ Выбрано место №{seat['number']}")
+                time.sleep(0.3)
+            except Exception as e:
+                logger.error(f"Ошибка при выборе места: {e}")
         
-        if available_seats:
-            center_seat = PASSAGE_SEAT - 1
-            available_seats.sort(key=lambda x: abs(x['seat'] - center_seat))
-            selected = available_seats[:seats_needed]
-            logger.info(f"Выбраны ближайшие к центру места: {selected}")
-            return selected
-        
-        logger.error("Не найдено свободных мест!")
-        return []
+        return [{'number': s['number']} for s in selected]
     
     def select_seats(self, seats):
         """Выбрать конкретные места (простая версия)"""
@@ -224,21 +230,47 @@ class EdgeTheaterBot:
         return selected_count
     
     def book_tickets(self):
-        """Нажать кнопку бронирования"""
+        """Нажать кнопку бронирования (кнопка внутри iframe)"""
         logger.info("Нажимаю кнопку бронирования...")
         
-        self.driver.switch_to.default_content()
-        
+        # Убеждаемся, что мы внутри iframe
         try:
-            button = self.wait.until(
-                EC.element_to_be_clickable((By.CSS_SELECTOR, ".uk-button-primary, button.btn-primary, #order button"))
-            )
-            button.click()
-            logger.info("Кнопка бронирования нажата")
-            time.sleep(3)
-            return True
+            self.driver.find_element(By.CSS_SELECTOR, ".hallPlace")
+            logger.info("  Уже внутри iframe")
+        except:
+            logger.info("  Переключаюсь в iframe")
+            self.switch_to_hall_iframe()
+        
+        time.sleep(1)
+        
+        # Ищем кнопку
+        try:
+            selectors = [
+                "button.button.buy",
+                "button.buy",
+                ".button.buy",
+                "button[type='button'].buy"
+            ]
+            
+            for selector in selectors:
+                try:
+                    button = self.driver.find_element(By.CSS_SELECTOR, selector)
+                    if button.is_displayed() and button.is_enabled():
+                        # Скроллим к кнопке
+                        self.driver.execute_script("arguments[0].scrollIntoView(true);", button)
+                        time.sleep(0.5)
+                        button.click()
+                        logger.info(f"✅ Кнопка бронирования нажата (селектор: {selector})")
+                        time.sleep(3)
+                        return True
+                except:
+                    continue
+            
+            logger.error("Кнопка бронирования не найдена")
+            return False
+            
         except Exception as e:
-            logger.error(f"Кнопка бронирования не найдена: {e}")
+            logger.error(f"Ошибка при нажатии кнопки: {e}")
             return False
     
     def get_payment_url(self):
@@ -246,9 +278,24 @@ class EdgeTheaterBot:
         time.sleep(2)
         current_url = self.driver.current_url
         
-        if "order" in current_url or "payment" in current_url:
+        logger.info(f"Текущий URL: {current_url}")
+        
+        # Проверяем, перешли ли на страницу оплаты
+        if "order" in current_url or "payment" in current_url or "anytickets" in current_url:
             logger.info(f"✅ URL для оплаты: {current_url}")
             return current_url
+        
+        # Если нет, проверяем, нет ли ссылки на странице
+        try:
+            links = self.driver.find_elements(By.CSS_SELECTOR, "a[href*='order'], a[href*='payment']")
+            for link in links:
+                href = link.get_attribute("href")
+                if href and ("order" in href or "payment" in href):
+                    logger.info(f"✅ Найдена ссылка на оплату: {href}")
+                    return href
+        except:
+            pass
+        
         return None
     
     def find_plays(self, play_name="Вишневый сад"):
@@ -452,23 +499,37 @@ class EdgeTheaterBot:
                     logger.warning(f"  Не удалось загрузить схему зала")
                     continue
                 
-                # 6. Ищем места
+                # 6. Ищем места (уже внутри iframe!)
                 logger.info(f"  Ищу места...")
                 selected_seats = self.select_seats_smart(seats_config)
                 
                 if selected_seats:
                     logger.info(f"  ✅ Найдены места: {selected_seats}")
                     
-                    # 7. Бронируем
+                    # 7. Бронируем (остаёмся внутри iframe для нажатия кнопки)
                     if self.book_tickets():
+                        # Ждём перехода на страницу оплаты
+                        time.sleep(3)
+                        
+                        # Пробуем получить URL оплаты
                         payment_url = self.get_payment_url()
                         if payment_url:
                             logger.info(f"🎉 УСПЕХ! Спектакль {play['name']} {play_date}")
                             return payment_url
+                        else:
+                            # Если не получили URL, проверяем текущий
+                            current_url = self.driver.current_url
+                            if "order" in current_url or "payment" in current_url:
+                                logger.info(f"🎉 УСПЕХ! Страница оплаты: {current_url}")
+                                return current_url
                     else:
                         logger.warning(f"  Не удалось забронировать")
                 else:
                     logger.info(f"  ❌ Нет свободных мест")
+                
+                # Возвращаемся на главную страницу для следующей проверки
+                self.driver.get("https://stavteatr.ru/p/playbill")
+                time.sleep(2)
             
             logger.info("Все спектакли проверены, билетов не найдено")
             return None
