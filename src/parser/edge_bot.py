@@ -562,4 +562,16 @@ class EdgeTheaterBot:
         """Закрыть браузер"""
         self.driver.quit()
         logger.info("Браузер закрыт")
-        
+
+    def make_visible(self):
+        """Сделать браузер видимым (если был в headless режиме)"""
+        if self.headless:
+            logger.info("Переключаю браузер в видимый режим...")
+            try:
+                # Выполняем JavaScript, который показывает окно
+                self.driver.execute_script("window.moveTo(0, 0); window.resizeTo(1920, 1080);")
+                # Фокус на окно
+                self.driver.switch_to.window(self.driver.current_window_handle)
+                logger.info("✅ Браузер теперь видим")
+            except Exception as e:
+                logger.error(f"Не удалось сделать браузер видимым: {e}")

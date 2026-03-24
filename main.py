@@ -17,8 +17,22 @@ def main():
         'seats_per_side': 2
     }
     
+<<<<<<< Updated upstream
     # Пробуем найти и забронировать
     result = bot.run_auto(play_name="Вишневый сад", seats_config=seats_config)
+=======
+    # ========== ВЫБЕРИТЕ РЕЖИМ ==========
+    
+    # РЕЖИМ 1: Поиск по названию (автоматически находит ID)
+    print("🔍 Режим: автоматический поиск спектакля 'Вишневый сад'")
+    result = bot.run_auto(play_name="Вишневый сад", seats_config=seats_config)
+    
+    # РЕЖИМ 2: По конкретному ID (быстрее, если ID известен)
+    # print("🎯 Режим: бронирование по ID 714 (Крыша поехала)")
+    # result = bot.run(session_id=714, seats=[{'row': 5, 'seat': 1}, {'row': 5, 'seat': 2}])
+    
+    # ====================================
+>>>>>>> Stashed changes
     
     if result:
         print(f"\n✅ Ссылка на оплату: {result}")
