@@ -27,7 +27,7 @@ try:
     driver.switch_to.frame(iframe)
     time.sleep(2)
     
-    # 3. Отдалить карту (нажать минус 2 раза)
+    # 3. Отдалить карту
     print("Отдаляю карту...")
     for i in range(2):
         minus_buttons = driver.find_elements(By.CSS_SELECTOR, ".minus")
@@ -50,7 +50,7 @@ try:
     
     first_seat = free_seats[0]
     
-    # 5. Навести мышь на место
+    # 5. Навести мышь
     print("Навожу мышь на место...")
     actions = ActionChains(driver)
     actions.move_to_element(first_seat).perform()
@@ -59,48 +59,39 @@ try:
     
     # 6. Кликнуть
     print("Кликаю...")
-    first_seat.click()
+    actions.click().perform()
     time.sleep(1)
     print("Клик выполнен")
     
-    # 7. Проверяем, выбралось ли место
-    print("Проверяю, выбралось ли место...")
-    selected = driver.find_elements(By.CSS_SELECTOR, ".hallPlace.selected, .hallPlace.active, .hallPlace.sel, .hallPlace.hovered")
-    if selected:
-        print(f"✅ Выбрано {len(selected)} мест!")
-    else:
-        print("❌ Место не выбралось")
-        # Пробуем клик через JavaScript
-        print("Пробую JavaScript клик...")
-        driver.execute_script("arguments[0].click();", first_seat)
-        time.sleep(1)
-        
-        selected = driver.find_elements(By.CSS_SELECTOR, ".hallPlace.selected, .hallPlace.active")
-        if selected:
-            print(f"✅ Выбрано {len(selected)} мест!")
-    
-    # 8. Ждать появления кнопки
+    # 7. Ждём появления кнопки
     print("Жду появления кнопки...")
     time.sleep(2)
     
-    # 9. Искать кнопку Купить
+    # 8. Ищем кнопку Купить
     print("Ищу кнопку Купить...")
     buy_buttons = driver.find_elements(By.CSS_SELECTOR, "button.buy, .button.buy")
+    
     if buy_buttons:
-        print(f"Найдено кнопок: {len(buy_buttons)}")
+        print(f"✅ Найдено кнопок: {len(buy_buttons)}")
         for btn in buy_buttons:
             if btn.is_displayed():
                 print("Кнопка видима!")
+                # Наводим на кнопку
+                actions.move_to_element(btn).perform()
+                time.sleep(0.5)
+                # Кликаем
                 btn.click()
                 print("Кнопка нажата!")
                 time.sleep(2)
                 print(f"Текущий URL: {driver.current_url}")
+                break
     else:
-        print("Кнопка не найдена!")
+        print("❌ Кнопка не найдена!")
         all_buttons = driver.find_elements(By.TAG_NAME, "button")
         print("Все кнопки в iframe:")
         for i, btn in enumerate(all_buttons):
-            print(f"  {i+1}. классы: {btn.get_attribute('class')}, текст: '{btn.text}'")
+            classes = btn.get_attribute("class") or ""
+            print(f"  {i+1}. классы: {classes}, видима: {btn.is_displayed()}, текст: '{btn.text}'")
     
     input("\nНажмите Enter для выхода...")
     

@@ -7,7 +7,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from src.parser.edge_bot import EdgeTheaterBot
 
 def main():
-    print("🎭 Театральный парсер")
+    print("ТЕАТРАЛЬНЫЙ ПАРСЕР")
     print("=" * 60)
     print("Бот работает в свернутом режиме. При находке билетов окно появится.")
     print()
@@ -25,14 +25,14 @@ def main():
         
         if result:
             print(f"\n{'='*60}")
-            print(f"🎉 БИЛЕТЫ НАЙДЕНЫ!")
-            print(f"🔗 Ссылка для оплаты: {result}")
+            print(f"УСПЕХ! БИЛЕТЫ НАЙДЕНЫ!")
+            print(f"Ссылка для оплаты: {result}")
             print(f"{'='*60}")
         else:
-            print("\n❌ Билеты не найдены")
+            print("\nБилеты не найдены")
             
     except Exception as e:
-        print(f"\n❌ Ошибка: {e}")
+        print(f"\nОшибка: {e}")
     
     input("\nНажмите Enter, чтобы закрыть...")
     bot.close()

@@ -147,7 +147,6 @@ class EdgeTheaterBot:
         seats_info = []
         for seat in free_seats:
             try:
-                # Получаем номер места
                 seat_number = ""
                 try:
                     number_span = seat.find_element(By.CSS_SELECTOR, ".place_text_only")
@@ -158,38 +157,17 @@ class EdgeTheaterBot:
                 if not seat_number:
                     seat_number = seat.text.strip()
                 
-                # Получаем координаты
-                style = seat.get_attribute("style")
-                left = 0
-                top = 0
-                if style and "left:" in style:
-                    try:
-                        left = int(style.split("left:")[1].split("px")[0])
-                    except:
-                        pass
-                if style and "top:" in style:
-                    try:
-                        top = int(style.split("top:")[1].split("px")[0])
-                    except:
-                        pass
-                
                 seats_info.append({
                     'element': seat,
-                    'number': seat_number,
-                    'left': left,
-                    'top': top
+                    'number': seat_number
                 })
-                logger.info(f"  Место: №{seat_number}, позиция: ({left}, {top})")
+                logger.info(f"  Место: №{seat_number if seat_number else '?'}")
             except Exception as e:
                 logger.error(f"Ошибка при чтении места: {e}")
-        
-        # Сортируем по позиции (слева направо, сверху вниз)
-        seats_info.sort(key=lambda x: (x['top'], x['left']))
         
         # Берём первые N мест
         selected = seats_info[:seats_needed]
         
-        # Выбираем места: сначала наводим мышь, потом кликаем
         actions = ActionChains(self.driver)
         
         for seat in selected:
@@ -202,8 +180,8 @@ class EdgeTheaterBot:
                 actions.move_to_element(seat['element']).perform()
                 time.sleep(0.5)
                 
-                # Кликаем
-                seat['element'].click()
+                # Кликаем через ActionChains (как в тесте!)
+                actions.click().perform()
                 logger.info(f"✅ Выбрано место №{seat['number']}")
                 time.sleep(0.5)
             except Exception as e:
@@ -262,6 +240,8 @@ class EdgeTheaterBot:
         logger.info("  Жду появления кнопки...")
         time.sleep(2)
         
+        actions = ActionChains(self.driver)
+        
         # Ищем кнопку внутри iframe
         try:
             selectors = [
@@ -272,30 +252,28 @@ class EdgeTheaterBot:
                 ".buttonGroup button"
             ]
             
-            actions = ActionChains(self.driver)
-            
             for selector in selectors:
                 try:
                     buttons = self.driver.find_elements(By.CSS_SELECTOR, selector)
                     for button in buttons:
+                        classes = button.get_attribute("class") or ""
+                        if "showAll" in classes or "hideAll" in classes:
+                            continue
+                        
                         if button.is_displayed() and button.is_enabled():
-                            # Исключаем служебные кнопки
-                            classes = button.get_attribute("class") or ""
-                            if "showAll" not in classes and "hideAll" not in classes:
-                                # Скроллим к кнопке
-                                self.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", button)
-                                time.sleep(0.5)
-                                
-                                # Наводим мышь на кнопку
-                                actions.move_to_element(button).perform()
-                                time.sleep(0.5)
-                                
-                                # Кликаем
-                                button.click()
-                                logger.info(f"✅ Кнопка бронирования нажата (селектор: {selector})")
-                                time.sleep(3)
-                                return True
-                except:
+                            logger.info(f"  Найдена кнопка! Классы: {classes}")
+                            
+                            # Наводим мышь на кнопку
+                            actions.move_to_element(button).perform()
+                            time.sleep(0.5)
+                            
+                            # Кликаем
+                            button.click()
+                            logger.info(f"✅ Кнопка бронирования нажата (селектор: {selector})")
+                            time.sleep(3)
+                            return True
+                except Exception as e:
+                    logger.debug(f"Ошибка с селектором {selector}: {e}")
                     continue
             
             logger.error("Кнопка бронирования не найдена")
@@ -500,7 +478,6 @@ class EdgeTheaterBot:
         logger.info(f"Начинаю автоматический поиск спектакля '{play_name}'")
         
         try:
-            # 1. Находим все спектакли с умным скроллингом
             plays = self.find_plays(play_name)
             
             if not plays:
@@ -509,33 +486,25 @@ class EdgeTheaterBot:
             
             logger.info(f"Найдено {len(plays)} спектаклей '{play_name}'")
             
-            # 2. Проверяем каждый
             for play in plays:
                 play_id = play['id']
                 play_date = play.get('date', '')
                 
                 logger.info(f"Проверяю: {play['name']} (ID: {play_id}) - {play_date}")
                 
-                # 3. Пропускаем игнорируемые даты
                 if self.is_date_ignored(play_date):
                     logger.info(f"  ⏭️ Дата {play_date} игнорируется")
                     continue
                 
-                # 4. Открываем страницу спектакля
                 if not self.open_play_page(play_id):
                     logger.warning(f"  Не удалось открыть страницу")
                     continue
                 
-                # 5. Переключаемся в iframe
                 if not self.switch_to_hall_iframe():
                     logger.warning(f"  Не удалось загрузить схему зала")
                     continue
                 
-                # 🎯 Отдаляем карту, чтобы увидеть все места
-                self.zoom_out(times=2)
-                
-                # 6. Ищем свободные места
-                logger.info(f"  Ищу свободные места...")
+                # Проверяем наличие свободных мест
                 free_seats = self.driver.find_elements(By.CSS_SELECTOR, ".hallPlace.free")
                 logger.info(f"  Найдено свободных мест: {len(free_seats)}")
                 
@@ -544,64 +513,21 @@ class EdgeTheaterBot:
                 if len(free_seats) >= seats_needed:
                     logger.info(f"  ✅ Найдено достаточно мест!")
                     
-                    # Сохраняем выбранные места
-                    selected_seats = []
-                    for seat in free_seats[:seats_needed]:
-                        try:
-                            number_span = seat.find_element(By.CSS_SELECTOR, ".place_text_only")
-                            seat_number = number_span.text.strip()
-                        except:
-                            seat_number = ""
-                        
-                        selected_seats.append({
-                            'element': seat,
-                            'number': seat_number
-                        })
-                        logger.info(f"    Место: №{seat_number if seat_number else '?'}")
-                    
-                    # Делаем браузер видимым (разворачиваем окно)
+                    # Делаем окно видимым
                     self.make_visible()
-                    
-                    # Ждём стабилизации
                     time.sleep(1)
                     
-                    # 🎯 Ещё раз отдаляем карту (теперь в видимом режиме)
-                    self.zoom_out(times=2)
-                    
-                    # Выбираем места (остаёмся в iframe)
-                    logger.info(f"  Выбираю места в видимом режиме...")
-                    for seat in selected_seats:
-                        try:
-                            self.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", seat['element'])
-                            time.sleep(0.5)
-                            self.driver.execute_script("arguments[0].click();", seat['element'])
-                            logger.info(f"  ✅ Выбрано место №{seat['number']}")
-                            time.sleep(0.5)
-                        except Exception as e:
-                            logger.error(f"  Ошибка при выборе места: {e}")
-                    
-                    # Даём время, чтобы кнопка стала активной
-                    logger.info("  Ожидаю появления кнопки...")
-                    time.sleep(2)
-                    
-                    # Бронируем (остаёмся в iframe!)
-                    if self.book_tickets():
-                        time.sleep(3)
+                    # Используем проверенную логику бронирования
+                    if self.book_with_test_logic():
                         payment_url = self.get_payment_url()
                         if payment_url:
                             logger.info(f"🎉 УСПЕХ! Спектакль {play['name']} {play_date}")
                             return payment_url
-                        else:
-                            current_url = self.driver.current_url
-                            if "order" in current_url or "payment" in current_url:
-                                logger.info(f"🎉 УСПЕХ! Страница оплаты: {current_url}")
-                                return current_url
                     else:
-                        logger.warning(f"  Не удалось забронировать")
+                        logger.warning("  Не удалось забронировать")
                 else:
                     logger.info(f"  ❌ Недостаточно свободных мест (нужно {seats_needed}, найдено {len(free_seats)})")
                 
-                # Возвращаемся на главную страницу для следующей проверки
                 self.driver.get("https://stavteatr.ru/p/playbill")
                 time.sleep(2)
             
@@ -670,3 +596,73 @@ class EdgeTheaterBot:
                         break
             except Exception as e:
                 logger.error(f"Ошибка при отдалении: {e}")
+
+    def book_with_test_logic(self):
+        """
+        Использует проверенную логику из test_click_seat.py для бронирования
+        (работает на текущей открытой странице)
+        """
+        logger.info("Использую проверенную логику бронирования...")
+        
+        # Убеждаемся, что мы внутри iframe
+        try:
+            self.driver.find_element(By.CSS_SELECTOR, ".hallPlace")
+            logger.info("  Уже внутри iframe")
+        except:
+            logger.info("  Переключаюсь в iframe")
+            self.switch_to_hall_iframe()
+        
+        # 1. Отдалить карту (2 раза)
+        logger.info("  Отдаляю карту...")
+        for i in range(2):
+            minus_buttons = self.driver.find_elements(By.CSS_SELECTOR, ".minus")
+            for btn in minus_buttons:
+                if btn.is_displayed():
+                    btn.click()
+                    logger.info(f"    Нажата кнопка минуса {i+1}")
+                    time.sleep(1)
+                    break
+        
+        # 2. Найти свободное место
+        free_seats = self.driver.find_elements(By.CSS_SELECTOR, ".hallPlace.free")
+        logger.info(f"  Найдено свободных мест: {len(free_seats)}")
+        
+        if not free_seats:
+            logger.error("  Нет свободных мест!")
+            return False
+        
+        first_seat = free_seats[0]
+        
+        # 3. Навести мышь
+        logger.info("  Навожу мышь на место...")
+        actions = ActionChains(self.driver)
+        actions.move_to_element(first_seat).perform()
+        time.sleep(1)
+        
+        # 4. Кликнуть
+        logger.info("  Кликаю...")
+        actions.click().perform()
+        time.sleep(1)
+        
+        # 5. Ждём появления кнопки
+        logger.info("  Жду появления кнопки...")
+        time.sleep(2)
+        
+        # 6. Ищем кнопку Купить
+        logger.info("  Ищу кнопку Купить...")
+        buy_buttons = self.driver.find_elements(By.CSS_SELECTOR, "button.buy, .button.buy")
+        
+        if buy_buttons:
+            logger.info(f"  Найдено кнопок: {len(buy_buttons)}")
+            for btn in buy_buttons:
+                if btn.is_displayed():
+                    logger.info("  Кнопка видима!")
+                    actions.move_to_element(btn).perform()
+                    time.sleep(0.5)
+                    btn.click()
+                    logger.info("  ✅ Кнопка нажата!")
+                    time.sleep(2)
+                    return True
+        else:
+            logger.error("  ❌ Кнопка не найдена!")
+            return False
